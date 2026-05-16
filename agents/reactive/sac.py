@@ -6,6 +6,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')
 
 import numpy as np
 import torch 
+import time
+#RL 
 from agents.base import BaseAgent
 from environments.utils import set_seed, Logger
 from stable_baselines3.common.callbacks import BaseCallback
@@ -16,17 +18,31 @@ from stable_baselines3.common.monitor import Monitor
 
 
 class LoggerCallback(BaseCallback):
-    def __init__(self, logger):
+    def __init__(self, logger,total_timesteps=10000):
         super().__init__()
         self.user_logger = logger 
+        self.total_timesteps = total_timesteps
+        self.episode_count = 0
+        self.ep_start_time = time.time()
+        self.start_time = time.time()
     def _on_step(self):
         for info in self.locals.get('infos', []):
             if 'episode' in info:
+                self.episode_count += 1
                 self.user_logger.log(self.num_timesteps, {
                     'episode_reward': info['episode']['r'],
                     'episode_length': info['episode']['l'],
                     'world_model_loss': 0.0,
                 })
+                print(
+                    f"[{self.num_timesteps:>7} / {self.total_timesteps}]"
+                    f"  ep {self.episode_count:>3}"
+                    f"  reward: {info['episode']['r']:.1f}"
+                    f"  len: {info['episode']['l']}"
+                    f"  time: {time.time() - self.ep_start_time:.2f}s"
+                )
+                self.ep_start_time = time.time()
+        print(f"Total time: {time.time() - self.start_time:.2f}s")
         return True
 
 class SACagent(BaseAgent): 
@@ -37,7 +53,7 @@ class SACagent(BaseAgent):
         self.hparams = hparams
     
     def train(self, total_timesteps):
-        cb = LoggerCallback(self.logger)
+        cb = LoggerCallback(self.logger, total_timesteps=total_timesteps)
         self.model.learn(total_timesteps=total_timesteps, callback=cb)
     
     def act(self, obs, deterministic=False):
@@ -47,9 +63,9 @@ class SACagent(BaseAgent):
     def save(self, path):
         self.model.save(path)
         np.savez(path + "_obs_norm.npz",
-                    mean = self.env.obs_rms.mean,
-                    var = self.env.obs_rms.var,
-                    count = self.env.obs_rms.count
+                    mean = self.env.env.obs_rms.mean,
+                    var = self.env.env.obs_rms.var,
+                    count = self.env.env.obs_rms.count
                 )
     
     @classmethod
@@ -62,9 +78,9 @@ class SACagent(BaseAgent):
         norm_path = path + "_obs_norm.npz"
         if os.path.exists(norm_path):
             data = np.load(norm_path)
-            env.obs_rms.mean  = data["mean"]
-            env.obs_rms.var   = data["var"]
-            env.obs_rms.count = data["count"]
+            env.env.obs_rms.mean  = data["mean"]
+            env.env.obs_rms.var   = data["var"]
+            env.env.obs_rms.count = data["count"]
         return instance
 
 
