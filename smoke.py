@@ -6,6 +6,6 @@ log_dir = "logs/sac_smoke_test"
 env = make_env("Swimmer-v5", seed=0)
 logger = Logger(agent_name='SAC',env_id='Swimmer-v5',seed=0,log_dir=log_dir)
 agent = SACagent(env=env, seed=0, log_dir=log_dir, logger=logger, device="cpu", learning_rate=3e-4)
-agent.train(total_timesteps=5000)
+agent.train(total_timesteps=10000)
 agent.save(f"{log_dir}/final.zip")
 logger.close()

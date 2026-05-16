@@ -3,7 +3,7 @@ from agents.reactive.sac import SACagent
 
 env = make_env("Swimmer-v5", seed=0, render_mode="human")
 agent = SACagent.load(
-    "logs/sac_smoke_test/SAC_Swimmer-v5_seed0/final.zip",
+    "logs/sac_smoke_test/SAC_Swimmer-v5_seed0/final",
     env=env, seed=0, log_dir=".", logger=None, device="cpu"
 )
 
