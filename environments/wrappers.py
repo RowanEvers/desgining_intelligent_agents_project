@@ -1,5 +1,5 @@
 import gymnasium as gym
-from utils import set_seed
+from environments.utils import set_seed
 
 def make_env(env_id, seed=42, render_mode= None):
     env = gym.make(env_id, render_mode=render_mode)
