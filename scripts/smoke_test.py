@@ -63,7 +63,7 @@ def main() -> None:
     args = parser.parse_args()
 
     seed = 42
-    device = "gpu" if torch.cuda.is_available() else "cpu"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # Tag log dirs with the latent kind so the two runs sit side-by-side in TensorBoard.
     run_tag = f"latent_sac_smoke_{args.latent}"
