@@ -75,33 +75,83 @@ def build_agent(env, seed, logger, device, latent_kind, log_dir):
     raise ValueError(f"Unknown latent kind: {latent_kind}")
 
 def main():
+    parser = argparse.ArgumentParser(
+        description="Experiment 1: 3 agents x 3 envs x 3 seeds = 27 runs."
+    )
+    parser.add_argument(
+        "--partition", type=int, default=0,
+        help="Which slice of the run grid this process handles "
+             "(0-indexed, must be < --num-partitions).",
+    )
+    parser.add_argument(
+        "--num-partitions", type=int, default=1,
+        help="How many parallel workers will share the 27-run grid. "
+             "Each worker handles runs whose index mod num-partitions "
+             "equals its --partition.",
+    )
+    parser.add_argument(
+        "--smoke", action="store_true",
+        help="Use GRADIENT_STEPS_SMOKE (short runs) instead of full schedule. "
+             "Use this to validate the pipeline end-to-end before committing "
+             "compute to the real sweep.",
+    )
+    args = parser.parse_args()
+
+    if not (0 <= args.partition < args.num_partitions):
+        raise SystemExit(
+            f"--partition must be in [0, {args.num_partitions}); got {args.partition}"
+        )
+
     ENVS = ["Pendulum-v1", "Hopper-v5", "Walker2d-v5"]
     AGENTS = ["sac", "gaussian", "categorical"]
-    GRADIENT_STEPS = [5e4,5e5,1e6]
-    GRADIENT_STEPS_SMOKE = [1e4, 1e5, 1e5]
+    GRADIENT_STEPS = [5e4, 5e5, 1e6]
+    GRADIENT_STEPS_SMOKE = [1e4, 1e4, 1e4]
+    STEPS = GRADIENT_STEPS_SMOKE if args.smoke else GRADIENT_STEPS
     seeds = [0, 1, 2]
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    runs = 0
 
-    for i,env_id in enumerate(ENVS):
+    runs_done = 0
+    runs_skipped = 0
+    run_index = 0
+
+    for i, env_id in enumerate(ENVS):
         for agent_kind in AGENTS:
             for seed in seeds:
-                runs += 1 
-                run_tag = f"{agent_kind}_{env_id}_steps{int(GRADIENT_STEPS_SMOKE[i])}_seed{seed}"
-                log_dir = f"logs/experiment_1/"
-                print(f"Running {run_tag} on {device}...")
+                # Partition by run-index modulo so two workers split the grid
+                # roughly evenly. Indexing in this order means long Walker2d
+                # runs (i=2) land at indices 18-26 and end up split across
+                # workers, which is what we want.
+                this_partition = run_index % args.num_partitions
+                run_index += 1
+                if this_partition != args.partition:
+                    runs_skipped += 1
+                    continue
 
-                env = make_env(env_id, seed=seed) 
-                env = set_seed(seed, env)
-                logger = Logger(log_dir=log_dir, agent_name=run_tag, env_id=env_id, seed=seed)
-                agent = build_agent(env, seed, logger, device, agent_kind, log_dir=log_dir)
+                run_tag = f"{agent_kind}_{env_id}_steps{int(STEPS[i])}_seed{seed}"
+                log_dir = "logs/experiment_1/"
+                print(
+                    f"[partition {args.partition}/{args.num_partitions}] "
+                    f"Running {run_tag} on {device}..."
+                )
+
+                env = make_env(env_id, seed=seed)
+                logger = Logger(log_dir=log_dir, agent_name=run_tag,
+                                env_id=env_id, seed=seed)
+                agent = build_agent(env, seed, logger, device, agent_kind,
+                                    log_dir=log_dir)
                 # Train the agent
-                agent.train(total_timesteps=int(GRADIENT_STEPS_SMOKE[i]))
+                agent.train(total_timesteps=int(STEPS[i]))
                 # Save the final model
                 agent.save(f"{logger.log_dir}/final.zip")
                 logger.close()
-                    
-    banner(f"Total runs: {runs} completed, results saved to logs/experiment_1/ directory")
-    
+                runs_done += 1
+
+    banner(
+        f"Partition {args.partition}/{args.num_partitions}: "
+        f"{runs_done} runs completed, {runs_skipped} skipped "
+        f"(handled by other partitions). "
+        f"Results saved to logs/experiment_1/."
+    )
+
 if __name__ == "__main__":
     main()

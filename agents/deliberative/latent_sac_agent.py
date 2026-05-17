@@ -39,9 +39,20 @@ import torch.optim as optim
 
 from agents.base import BaseAgent
 from agents.deliberative.world_model.world_model import GaussianWorldModel
+from agents.deliberative.world_model.world_model_categorical import CategoricalWorldModel
 from agents.deliberative.sac.actor import SquashedGaussianActor
 from agents.deliberative.sac.critic import TwinCritic, polyak_update
 from agents.deliberative.sac.replay import EnvReplayBuffer, ImaginedBuffer
+from environments.utils import extract_env_norm_stats, restore_env_norm_stats
+
+
+# Registry used to round-trip world-model identity through a checkpoint.
+# Saving the class itself in torch.save is brittle across refactors —
+# we save the name and look it up on load.
+WORLD_MODEL_REGISTRY = {
+    "GaussianWorldModel": GaussianWorldModel,
+    "CategoricalWorldModel": CategoricalWorldModel,
+}
 
 
 class LatentSACAgent(BaseAgent):
@@ -113,6 +124,12 @@ class LatentSACAgent(BaseAgent):
         # Caller-provided kwargs (e.g. num_cat/num_classes) override.
         wm_kwargs.update(world_model_kwargs or {})
         self.world_model = world_model_cls(**wm_kwargs).to(device)
+        # Stash so save() can round-trip identity + kwargs through the checkpoint.
+        # Storing the resolved kwargs (including the auto-filled obs_dim etc.)
+        # means load() reconstructs an architecturally identical world model
+        # without needing the env to expose the same shapes.
+        self._world_model_cls_name = type(self.world_model).__name__
+        self._world_model_kwargs = dict(wm_kwargs)
 
         # ---- resolve latent_dim seen by downstream nets (actor/critic/buffer) ----
         # CategoricalWorldModel exposes `flat_dim` = num_cat * num_classes.
@@ -264,6 +281,13 @@ class LatentSACAgent(BaseAgent):
         return action.squeeze(0).cpu().numpy()
 
     def save(self, path: str) -> None:
+        """Persist enough to reconstruct this exact agent later.
+
+        Includes:
+          - world-model class *name* + its constructor kwargs (Problem A)
+          - env normalisation running stats (Problem B), if present
+          - all network state dicts, log_alpha, hparams, env step counter
+        """
         torch.save({
             "world_model": self.world_model.state_dict(),
             "actor": self.actor.state_dict(),
@@ -272,14 +296,50 @@ class LatentSACAgent(BaseAgent):
             "log_alpha": self.log_alpha.data,
             "hparams": self.hparams,
             "env_step_counter": self._env_step_counter,
+            # --- Problem A: world-model identity ---
+            "world_model_cls_name": self._world_model_cls_name,
+            "world_model_kwargs": self._world_model_kwargs,
+            # --- Problem B: env normalisation stats ---
+            "env_norm_stats": extract_env_norm_stats(self.env),
         }, path)
 
     @classmethod
-    def load(cls, path, env):
-        # NOTE: caller must provide seed/log_dir/logger/device; we rebuild from saved hparams.
-        ckpt = torch.load(path, map_location="cpu")
+    def load(cls, path, env, seed=0, log_dir="", logger=None, device="cpu",
+             restore_env_stats=True, freeze_env_stats=False):
+        """Reconstruct a LatentSACAgent from a checkpoint.
+
+        Args:
+            path: checkpoint path.
+            env: a fresh env instance (already wrapped the same way training
+                used it — i.e. via ``make_env``). Its normalisation stats
+                will be overwritten from the checkpoint if ``restore_env_stats``
+                is True.
+            seed, log_dir, logger, device: standard agent kwargs — needed if
+                you want to continue training or run experiment 3 adaptation.
+            restore_env_stats: if True (default), copy saved obs_rms /
+                return_rms onto the wrappers in ``env``.
+            freeze_env_stats: if True, freeze the running stats so further
+                steps in ``env`` do not update them. Use this for adaptation
+                (experiment 3) — keeps the agent's expected input
+                distribution stable.
+        """
+        ckpt = torch.load(path, map_location=device)
+
+        # --- Problem A: round-trip world-model identity through the registry ---
+        wm_cls_name = ckpt.get("world_model_cls_name", "GaussianWorldModel")
+        if wm_cls_name not in WORLD_MODEL_REGISTRY:
+            raise ValueError(
+                f"Checkpoint references unknown world_model_cls '{wm_cls_name}'. "
+                f"Known: {list(WORLD_MODEL_REGISTRY)}"
+            )
+        wm_cls = WORLD_MODEL_REGISTRY[wm_cls_name]
+        wm_kwargs = ckpt.get("world_model_kwargs", None)
+
         agent = cls(
-            env=env, seed=0, log_dir="", logger=None, device="cpu", **ckpt["hparams"]
+            env=env, seed=seed, log_dir=log_dir, logger=logger, device=device,
+            world_model_cls=wm_cls,
+            world_model_kwargs=wm_kwargs,
+            **ckpt["hparams"],
         )
         agent.world_model.load_state_dict(ckpt["world_model"])
         agent.actor.load_state_dict(ckpt["actor"])
@@ -287,7 +347,53 @@ class LatentSACAgent(BaseAgent):
         agent.target_critic.load_state_dict(ckpt["target_critic"])
         agent.log_alpha.data.copy_(ckpt["log_alpha"])
         agent._env_step_counter = ckpt.get("env_step_counter", 0)
+
+        # --- Problem B: restore env normalisation stats ---
+        if restore_env_stats:
+            restore_env_norm_stats(env, ckpt.get("env_norm_stats", {}),
+                                   freeze=freeze_env_stats)
+
         return agent
+
+    # =====================================================================
+    #  Adaptation hook (experiment 3)
+    # =====================================================================
+    def prepare_for_adaptation(self, freeze_world_model: bool = True,
+                               reset_step_counter: bool = True,
+                               clear_buffers: bool = True) -> None:
+        """Prep a loaded agent for experiment-3 style adaptation to a new env.
+
+        - ``freeze_world_model``: turn off grads on the world model so only
+          the actor + critic adapt. This is the standard "is the learned
+          representation transferable?" probe.
+        - ``reset_step_counter``: zero the env-step axis so adaptation
+          curves start at 0 rather than wherever source training ended.
+        - ``clear_buffers``: wipe the env and imagined replay buffers so
+          source-task transitions don't pollute the target task. Almost
+          always what you want — leave on unless you have a reason.
+        """
+        if freeze_world_model:
+            for p in self.world_model.parameters():
+                p.requires_grad = False
+            self.world_model.eval()
+
+        if reset_step_counter:
+            self._env_step_counter = 0
+
+        if clear_buffers:
+            # Re-create the buffers cleanly rather than mutating internals.
+            self.env_buffer = type(self.env_buffer)(
+                capacity=self.env_buffer_size,
+                obs_dim=self.obs_dim,
+                action_dim=self.action_dim,
+                device=self.device,
+            )
+            self.imagined_buffer = type(self.imagined_buffer)(
+                capacity=self.imag_buffer_size,
+                latent_dim=self.latent_dim,
+                action_dim=self.action_dim,
+                device=self.device,
+            )
 
     # =====================================================================
     #  Internal helpers
