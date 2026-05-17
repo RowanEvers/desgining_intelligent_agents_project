@@ -80,9 +80,9 @@ def main():
     ENVS = ["Pendulum-v1", "Hopper-v5", "Walker2d-v5"]
     AGENTS = ["sac", "gaussian", "categorical"]
     GRADIENT_STEPS = [5e4,5e5,1e6]
-    GRADIENT_STEPS_SMOKE = [1e2, 1e2, 1e2]
+    GRADIENT_STEPS_SMOKE = [1e4, 1e5, 1e5]
     seeds = [0, 1, 2]
-    device = "gpu" if torch.cuda.is_available() else "cpu"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     runs = 0
 
     for i,env_id in enumerate(ENVS):

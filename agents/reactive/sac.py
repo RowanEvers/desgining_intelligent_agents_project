@@ -42,7 +42,6 @@ class LoggerCallback(BaseCallback):
                     f"  time: {time.time() - self.ep_start_time:.2f}s"
                 )
                 self.ep_start_time = time.time()
-        print(f"Total time: {time.time() - self.start_time:.2f}s")
         return True
 
 class SACagent(BaseAgent): 
