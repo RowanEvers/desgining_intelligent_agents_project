@@ -72,9 +72,7 @@ class SACagent(BaseAgent):
     def load(cls, path, env, seed, log_dir, logger, device, **hparams):
 
         instance = cls(env, seed, log_dir, logger, device, **hparams)
-        instance.model = SAC.load(path, env= Monitor(env), device=device)
-
-
+        instance.model = SAC.load(path.replace(".zip", ""), env=Monitor(env), device=device)
         norm_path = path + "_obs_norm.npz"
         if os.path.exists(norm_path):
             data = np.load(norm_path)
