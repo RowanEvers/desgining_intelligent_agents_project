@@ -29,6 +29,7 @@ world-model class swaps to a categorical variant.
 """
 
 import copy
+import time
 
 import numpy as np
 import torch
@@ -177,6 +178,8 @@ class LatentSACAgent(BaseAgent):
         obs, _ = self.env.reset(seed=self.seed)
         ep_return = 0.0
         ep_len = 0
+        episode_count = 0
+        ep_start_time = time.time()
 
         while self._env_step_counter < total_timesteps:
             # ---- Step 1: collect env data ----
@@ -197,13 +200,24 @@ class LatentSACAgent(BaseAgent):
                 self._env_step_counter += 1
 
                 if terminated or truncated:
+                    episode_count += 1
                     self.logger.log(self._env_step_counter, {
                         "episode_reward": ep_return,
                         "episode_length": ep_len,
                     })
+                    # Console output — matches LoggerCallback in reactive/sac.py
+                    # so latent and reactive runs look the same in the terminal.
+                    print(
+                        f"[{self._env_step_counter:>7} / {total_timesteps}]"
+                        f"  ep {episode_count:>3}"
+                        f"  reward: {ep_return:.1f}"
+                        f"  len: {ep_len}"
+                        f"  time: {time.time() - ep_start_time:.2f}s"
+                    )
                     obs, _ = self.env.reset()
                     ep_return = 0.0
                     ep_len = 0
+                    ep_start_time = time.time()
                 else:
                     obs = next_obs
 
