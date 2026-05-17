@@ -23,7 +23,7 @@ def set_seed(seed, env=None):
 class Logger:
     '''Simple logger that writes metrics to both TensorBoard and a CSV file.'''
     def __init__(self, log_dir: str, agent_name: str, env_id: str, seed: int):
-        self.run_name = f"{agent_name}_{env_id}_seed{seed}"
+        self.run_name = f"{agent_name}"
         self.log_dir = os.path.join(log_dir, self.run_name)
         os.makedirs(self.log_dir, exist_ok=True)
         

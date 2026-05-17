@@ -27,7 +27,7 @@ from agents.deliberative.world_model.world_model_categorical import CategoricalW
 from agents.reactive.sac import SACagent
 from scripts.smoke_test import banner, assert_finite
 
-def build_agent(env, seed, logger, device, latent_kind, log_dir="logs"):
+def build_agent(env, seed, logger, device, latent_kind, log_dir):
     """Construct a LatentSACAgent wired with the requested world model.
 
     Common SAC hyperparameters are kept identical between the two variants
@@ -45,13 +45,13 @@ def build_agent(env, seed, logger, device, latent_kind, log_dir="logs"):
         imag_buffer_size=10_000,
     )
 
-    reative_hparams = dict(
+    reactive_hparams = dict(
         learning_rate=3e-4,
     )
 
     if latent_kind == "gaussian":
         return LatentSACAgent(
-            env=env, seed=seed, log_dir="logs", logger=logger, device=device,
+            env=env, seed=seed, log_dir=log_dir, logger=logger, device=device,
             world_model_cls=GaussianWorldModel,
             world_model_kwargs={"latent_dim": 16},     # small for fast smoke test
             **common_hparams,
@@ -62,7 +62,7 @@ def build_agent(env, seed, logger, device, latent_kind, log_dir="logs"):
         # the smoke test fast on CPU. 8 categoricals x 8 classes = 64-d flat
         # latent — comparable capacity to the Gaussian's 16-d latent.
         return LatentSACAgent(
-            env=env, seed=seed, log_dir="logs", logger=logger, device=device,
+            env=env, seed=seed, log_dir=log_dir, logger=logger, device=device,
             world_model_cls=CategoricalWorldModel,
             world_model_kwargs={"num_cat": 8, "num_classes": 8},
             **common_hparams,
@@ -70,8 +70,8 @@ def build_agent(env, seed, logger, device, latent_kind, log_dir="logs"):
     if latent_kind == "sac":
         # Vanilla SAC without a world model — just to sanity check the training loop itself.
         return SACagent(
-            env=env, seed=seed, log_dir="logs", logger=logger, device=device,
-            **reative_hparams,
+            env=env, seed=seed, log_dir=log_dir, logger=logger, device=device,
+            **reactive_hparams,
         )
 
     raise ValueError(f"Unknown latent kind: {latent_kind}")
