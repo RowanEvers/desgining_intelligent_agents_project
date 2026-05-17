@@ -323,7 +323,12 @@ class LatentSACAgent(BaseAgent):
                 (experiment 3) — keeps the agent's expected input
                 distribution stable.
         """
-        ckpt = torch.load(path, map_location=device)
+        # weights_only=False: our checkpoint legitimately contains non-tensor
+        # objects (numpy arrays in env_norm_stats, dict of hparams). PyTorch
+        # >=2.6 defaults this to True and refuses to unpickle them. Safe to
+        # disable because we're loading a checkpoint *we* produced — never
+        # one from an untrusted source.
+        ckpt = torch.load(path, map_location=device, weights_only=False)
 
         # --- Problem A: round-trip world-model identity through the registry ---
         wm_cls_name = ckpt.get("world_model_cls_name", "GaussianWorldModel")
