@@ -8,6 +8,7 @@ import csv
 import os
 from torch.utils.tensorboard import SummaryWriter
 
+
 def set_seed(seed, env=None):
     random.seed(seed)
     np.random.seed(seed)
@@ -52,3 +53,4 @@ class Logger:
     def close(self):
         self.writer.close()
         self.csv_file.close()
+
