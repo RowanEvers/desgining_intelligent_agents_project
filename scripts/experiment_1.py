@@ -8,8 +8,6 @@ import os
 import sys
 import argparse
 
-from certifi.__main__ import args
-
 # Make the package importable when running as `python scripts/smoke_test.py`
 # from the repo root.
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
