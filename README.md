@@ -1,12 +1,13 @@
 # Reinforcemnt Learning for motor simulations: Exploring Different World Models
 Rowan Evers - University of Nottingham 
+ # - connect back to session: tmux attach -t dia
 
 ## Abstract 
 
 ## Introduction 
 Reinforcement Learning is an exciting machine learning paradigm, using a goal oriented approach, with rewards reinforcing an agents actions when interacting with an environment. This human like approach was first theorised in the ... with ... This further progressed into ... It applications... 
 
-Reinforcement learning agents can be either be model-free or model-based. The former meaning the agent is purely 'unaware' of the environment it interacts with. It purely makes decisions based on an initial policy which iterated on via rewards. The latter...   
+Reinforcement learning agents can be either be model-free or model-based. The former meaning the agent is purely 'unaware' of the environment it interacts with. It purely makes decisions based on an initial policy which iterated on via rewards. The latter forms a 'world model' of its environment through some means in order
 
 World Models >> link to reactive and deliberative ... 
 
