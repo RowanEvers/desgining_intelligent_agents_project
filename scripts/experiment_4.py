@@ -121,7 +121,12 @@ def main():
         run_log_dir.mkdir(parents=True, exist_ok=True)
         # Perturbed env. Offset seed so adaptation isn't a deterministic
         # replay of the first source episode.
-        env = make_env(ENV_ID, seed=seed + 50_000, gravity_scale=PERT_SCALE)
+        # normalize_reward=False to match Exp 3's setup (per the A/B test).
+        # If Exp 3 source ckpts were trained with NormalizeReward, swap this
+        # back to True so the env's reward scale matches what the loaded
+        # agent expects.
+        env = make_env(ENV_ID, seed=seed + 50_000, gravity_scale=PERT_SCALE,
+                       normalize_reward=False)
         logger = Logger(log_dir=str(LOG_ROOT), agent_name=tag,
                         env_id=ENV_ID, seed=seed)
 
@@ -157,6 +162,18 @@ def main():
 
     banner(
         f"Partition {args.partition}/{args.num_partitions}: "
+        f"{runs_done} done, "
+        f"{runs_skipped_partition} other-partition, "
+        f"{runs_skipped_missing} missing-ckpt, "
+        f"{runs_skipped_done} already-done, "
+        f"{runs_failed} failed. "
+        f"Results in {LOG_ROOT}/."
+    )
+
+
+if __name__ == "__main__":
+    main()
+: "
         f"{runs_done} done, "
         f"{runs_skipped_partition} other-partition, "
         f"{runs_skipped_missing} missing-ckpt, "

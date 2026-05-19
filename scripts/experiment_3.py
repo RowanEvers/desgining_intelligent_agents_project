@@ -176,7 +176,12 @@ def main():
             continue
 
         run_log_dir.mkdir(parents=True, exist_ok=True)
-        env = make_env(ENV_ID, seed=seed)
+        # normalize_reward=False per the A/B test (scripts/ab_normalize_reward.py):
+        # SAC + NormalizeReward shrinks Q-values into a range where automatic
+        # entropy tuning collapses exploration. At 50k steps the unnormalized
+        # run reached 1512 mean vs 523 with NormalizeReward — 2.9× gap that
+        # widens further by 1M steps.
+        env = make_env(ENV_ID, seed=seed, normalize_reward=False)
         logger = Logger(log_dir=str(LOG_ROOT), agent_name=run_tag,
                         env_id=ENV_ID, seed=seed)
         try:
