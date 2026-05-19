@@ -207,7 +207,7 @@ class LatentSACAgent(BaseAgent):
                 else:
                     action = self.act(obs, deterministic=False)
 
-                next_obs, reward, terminated, truncated, _ = self.env.step(action)
+                next_obs, reward, terminated, truncated, info = self.env.step(action)
                 # Store `terminated` (true end-of-episode) as the done flag —
                 # `truncated` shouldn't bootstrap to zero, so we exclude it.
                 self.env_buffer.add(obs, action, reward, next_obs, terminated)
@@ -218,16 +218,27 @@ class LatentSACAgent(BaseAgent):
 
                 if terminated or truncated:
                     episode_count += 1
-                    self.logger.log(self._env_step_counter, {
-                        "episode_reward": ep_return,
+                    log_dict = {
+                        "episode_reward": ep_return,         # normalized — SAC's update signal
                         "episode_length": ep_len,
-                    })
+                    }
+                    # When RecordEpisodeStatistics is in the wrapper chain
+                    # (the make_env default), info["episode"]["r"] is the
+                    # RAW episodic return — log it so the training curve is
+                    # interpretable without re-running eval.
+                    ep_info = info.get("episode") if isinstance(info, dict) else None
+                    if ep_info is not None and "r" in ep_info:
+                        log_dict["episode_reward_raw"] = float(ep_info["r"])
+                    self.logger.log(self._env_step_counter, log_dict)
                     # Console output — matches LoggerCallback in reactive/sac.py
                     # so latent and reactive runs look the same in the terminal.
+                    raw_str = (f"  reward(raw): {log_dict['episode_reward_raw']:.1f}"
+                               if "episode_reward_raw" in log_dict else "")
                     print(
                         f"[{self._env_step_counter:>7} / {total_timesteps}]"
                         f"  ep {episode_count:>3}"
-                        f"  reward: {ep_return:.1f}"
+                        f"  reward(norm): {ep_return:.3f}"
+                        f"{raw_str}"
                         f"  len: {ep_len}"
                         f"  time: {time.time() - ep_start_time:.2f}s"
                     )

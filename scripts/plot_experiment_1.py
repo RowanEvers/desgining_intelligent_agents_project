@@ -1,4 +1,4 @@
-"""Publication-quality figures for experiment 1.
+"""Publication-quality figures for experiment 1 — RAW REWARD edition.
 
 Run from the repo root::
 
@@ -10,20 +10,38 @@ Produces two figures:
   1. ``learning_curves.{png,pdf}`` — 3 panels (one per env), 3 curves per panel
      (SAC / Gaussian / Categorical), mean across 3 seeds with a ±1 std band.
   2. ``final_performance.{png,pdf}`` — grouped bar chart of mean episode return
-     over the last 10% of training, error bars = std across seeds.
+     (raw, from deterministic eval), error bars = std across seeds.
 
-The aggregation strategy: each run logs at episode boundaries, so different
-runs have different numbers of points and different step values. To average
-across seeds, we resample every run onto a common 200-point step grid via
-linear interpolation, then take mean/std across seeds at each grid point.
+Reward handling
+---------------
+Exp 1 trained with ``gym.wrappers.NormalizeReward`` and only the normalized
+reward was logged to ``metrics.jsonl``. That's what made the curves look
+like flat noise — the normalization divisor (running std of the discounted
+return) grows alongside the policy, so the ratio stays roughly constant.
+
+To recover an interpretable RAW learning curve, we use the per-seed
+deterministic eval values from ``logs/experiment_1/eval/eval_results.csv``
+as a ground-truth anchor at the END of training. For each run we compute:
+
+    scale = eval_mean_return / median(last 10% of normalized rewards)
+    raw_curve ≈ scale × normalized_curve
+
+This is exact at the endpoint and approximate during training (since the
+true normalization divisor grew over time, but we apply a single constant
+scale). It's an honest "best-effort" reconstruction — the curve's SHAPE
+should be read with that caveat in mind. The y-axis label says so.
+
+Going forward (Exp 2+), ``metrics.jsonl`` carries ``episode_reward_raw``
+directly thanks to the ``RecordEpisodeStatistics`` wrapper added in
+``environments/wrappers.py``. If that column is present, this script uses
+it as-is and skips the eval-based rescaling entirely.
 """
 from __future__ import annotations
 
-import json
 import os
 import re
 import sys
-from glob import glob
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -37,6 +55,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 # Config
 # ---------------------------------------------------------------------------
 LOG_ROOT = Path("logs/experiment_1")
+EVAL_DIR = LOG_ROOT / "eval"
 OUT_DIR = LOG_ROOT / "figures"
 ENVS = ["Pendulum-v1", "Hopper-v5", "Walker2d-v5"]
 AGENTS = ["sac", "gaussian", "categorical"]
@@ -50,32 +69,78 @@ AGENT_COLORS = {
     "gaussian": "#1f77b4",     # blue
     "categorical": "#d62728",  # red
 }
-# Run-tag pattern: e.g. "categorical_Walker2d-v5_steps1000000_seed2"
 RUN_RE = re.compile(r"^(?P<agent>sac|gaussian|categorical)_(?P<env>[\w\-]+)_steps(?P<steps>\d+)_seed(?P<seed>\d+)$")
 
-N_GRID = 200       # number of points to resample each curve to
-SMOOTH_FRAC = 0.04 # rolling-window size as a fraction of total episodes (~4%).
-                   # Long runs (10k+ eps) get a wide smoother; short runs (200 eps)
-                   # get a small one. Min window of 11 to avoid degenerate smoothing.
+N_GRID = 200
+SMOOTH_FRAC = 0.04
 SMOOTH_MIN = 11
-FINAL_FRAC = 0.10  # fraction of training (by episode index) to average for final perf
+TAIL_FRAC = 0.10
 
 
 # ---------------------------------------------------------------------------
-# Loader
+# Eval-anchor loader
 # ---------------------------------------------------------------------------
-def load_run(jsonl_path: Path) -> pd.DataFrame | None:
+def load_eval_anchors(eval_dir: Path = EVAL_DIR) -> dict:
+    """Return ``{(env, agent, seed): raw_mean_return}`` from eval_results.csv."""
+    path = eval_dir / "eval_results.csv"
+    if not path.exists():
+        print(f"  [warn] No eval results at {path} — curves will fall back "
+              f"to normalized-only and look like noise. Run "
+              f"scripts/evaluate_experiment_1.py first.")
+        return {}
+    df = pd.read_csv(path)
+    anchors = {}
+    for _, row in df.iterrows():
+        anchors[(row["env"], row["agent"], int(row["seed"]))] = float(row["mean_return"])
+    return anchors
+
+
+# ---------------------------------------------------------------------------
+# Per-run loader (raw-reward-aware)
+# ---------------------------------------------------------------------------
+def load_run(jsonl_path: Path, anchor_raw: float | None) -> pd.DataFrame | None:
     """Load a single run's metrics.jsonl into a dataframe with columns
-    ['step', 'episode_reward']. Returns None for empty / malformed files."""
+    ``['step', 'reward']`` where ``reward`` is RAW (best-effort).
+
+    Resolution order:
+      1. If the JSONL has an ``episode_reward_raw`` column (Exp 2 onwards),
+         use it directly — no rescaling needed.
+      2. Else, rescale ``episode_reward`` so that the median of its last
+         ``TAIL_FRAC`` matches ``anchor_raw`` (from eval).
+      3. Else, return the normalized column as-is and let the caller
+         decide what to do.
+    """
     try:
         df = pd.read_json(jsonl_path, lines=True)
     except ValueError:
         return None
-    if df.empty or "episode_reward" not in df.columns:
+    if df.empty:
         return None
-    # Some rows may carry NaN reward (e.g. WM-loss-only rows in future versions).
-    df = df.dropna(subset=["episode_reward"]).reset_index(drop=True)
-    return df[["step", "episode_reward"]]
+
+    if "episode_reward_raw" in df.columns:
+        out = df.dropna(subset=["episode_reward_raw"])[["step", "episode_reward_raw"]]
+        return out.rename(columns={"episode_reward_raw": "reward"}).reset_index(drop=True)
+
+    if "episode_reward" not in df.columns:
+        return None
+    out = df.dropna(subset=["episode_reward"])[["step", "episode_reward"]]
+    out = out.rename(columns={"episode_reward": "reward"}).reset_index(drop=True)
+    if len(out) < 2:
+        return None
+
+    if anchor_raw is None:
+        return out
+
+    n_tail = max(5, int(len(out) * TAIL_FRAC))
+    anchor_norm = float(np.median(out["reward"].iloc[-n_tail:]))
+    if abs(anchor_norm) < 1e-8:
+        anchor_norm = float(out["reward"].iloc[-n_tail:].mean())
+        if abs(anchor_norm) < 1e-8:
+            print(f"  [warn] anchor near zero in {jsonl_path.parent.name} — leaving normalized")
+            return out
+    scale = anchor_raw / anchor_norm
+    out["reward"] = out["reward"] * scale
+    return out
 
 
 def discover_runs(root: Path) -> pd.DataFrame:
@@ -104,39 +169,33 @@ def discover_runs(root: Path) -> pd.DataFrame:
 # Aggregation
 # ---------------------------------------------------------------------------
 def smoothed_curve(df: pd.DataFrame) -> pd.DataFrame:
-    """Adaptive rolling mean: window proportional to run length so a 10k-episode
-    Hopper run gets a much wider smoother than a 250-episode Pendulum run."""
     out = df.copy().sort_values("step").reset_index(drop=True)
     win = max(SMOOTH_MIN, int(len(out) * SMOOTH_FRAC))
-    out["episode_reward"] = (
-        out["episode_reward"].rolling(window=win, min_periods=1, center=True).mean()
-    )
+    out["reward"] = out["reward"].rolling(window=win, min_periods=1, center=True).mean()
     return out
 
 
 def resample_to_grid(df: pd.DataFrame, grid: np.ndarray) -> np.ndarray:
-    """Linear-interpolate the reward curve onto a fixed step grid.
-    Outside the run's step range, values are NaN (so the seed doesn't fake
-    coverage it doesn't have)."""
-    steps = df["step"].to_numpy()
-    rewards = df["episode_reward"].to_numpy()
-    out = np.interp(grid, steps, rewards, left=np.nan, right=np.nan)
-    return out
+    return np.interp(grid, df["step"].to_numpy(), df["reward"].to_numpy(),
+                     left=np.nan, right=np.nan)
 
 
 def aggregate_seeds(curves: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
-    """Stack per-seed curves and return (mean, std), ignoring NaNs."""
-    arr = np.vstack(curves)  # shape (n_seeds, n_grid)
-    with np.errstate(invalid="ignore"):
-        mean = np.nanmean(arr, axis=0)
-        std = np.nanstd(arr, axis=0)
-    return mean, std
+    """Stack per-seed curves and return (mean, std), ignoring NaNs.
+    Suppresses 'Mean of empty slice' warnings from grid points past the
+    shortest seed's last episode."""
+    arr = np.vstack(curves)
+    with warnings.catch_warnings(), np.errstate(invalid="ignore"):
+        warnings.filterwarnings("ignore", message="Mean of empty slice")
+        warnings.filterwarnings("ignore", message="Degrees of freedom")
+        return np.nanmean(arr, axis=0), np.nanstd(arr, axis=0)
 
 
 # ---------------------------------------------------------------------------
 # Plot 1: learning curves
 # ---------------------------------------------------------------------------
-def plot_learning_curves(runs: pd.DataFrame, out_dir: Path):
+def plot_learning_curves(runs: pd.DataFrame, anchors: dict, out_dir: Path,
+                         using_eval_anchors: bool):
     fig, axes = plt.subplots(1, 3, figsize=(15, 4.2), sharey=False)
 
     for ax, env in zip(axes, ENVS):
@@ -145,10 +204,10 @@ def plot_learning_curves(runs: pd.DataFrame, out_dir: Path):
             ax.set_title(f"{env}\n(no data)")
             continue
 
-        # Build a common step grid spanning the env's max training horizon
         max_step = 0
         for _, r in env_runs.iterrows():
-            df = load_run(r["path"])
+            anchor = anchors.get((r["env"], r["agent"], r["seed"]))
+            df = load_run(r["path"], anchor)
             if df is not None:
                 max_step = max(max_step, df["step"].max())
         if max_step == 0:
@@ -160,15 +219,14 @@ def plot_learning_curves(runs: pd.DataFrame, out_dir: Path):
             agent_runs = env_runs[env_runs["agent"] == agent]
             if agent_runs.empty:
                 continue
-
             seed_curves = []
             for _, r in agent_runs.iterrows():
-                df = load_run(r["path"])
+                anchor = anchors.get((r["env"], r["agent"], r["seed"]))
+                df = load_run(r["path"], anchor)
                 if df is None or len(df) < 2:
                     continue
                 df = smoothed_curve(df)
                 seed_curves.append(resample_to_grid(df, grid))
-
             if not seed_curves:
                 continue
             mean, std = aggregate_seeds(seed_curves)
@@ -179,13 +237,12 @@ def plot_learning_curves(runs: pd.DataFrame, out_dir: Path):
         ax.set_title(env, fontsize=12)
         ax.set_xlabel("Environment steps")
         ax.grid(True, linestyle="--", alpha=0.4)
-        # human-friendly x-axis (e.g. 200k instead of 200000)
         ax.ticklabel_format(style="sci", axis="x", scilimits=(0, 0))
 
-    axes[0].set_ylabel("Episode return (normalized)")
-    # Shared legend at the bottom
+    ylabel = ("Episode return (raw, calibrated to eval)"
+              if using_eval_anchors else "Episode return (raw)")
+    axes[0].set_ylabel(ylabel)
     handles, labels = axes[0].get_legend_handles_labels()
-    # Pendulum may not have all agents; fall back to whichever panel has the most
     for ax in axes[1:]:
         h, l = ax.get_legend_handles_labels()
         if len(h) > len(handles):
@@ -205,30 +262,18 @@ def plot_learning_curves(runs: pd.DataFrame, out_dir: Path):
 
 
 # ---------------------------------------------------------------------------
-# Plot 2: final-performance bar chart
+# Plot 2: final-performance bar chart (uses raw eval data directly)
 # ---------------------------------------------------------------------------
-def plot_final_performance(runs: pd.DataFrame, out_dir: Path):
-    # For each (env, agent, seed): mean reward over the last FINAL_FRAC of episodes
-    records = []
-    for _, r in runs.iterrows():
-        df = load_run(r["path"])
-        if df is None or len(df) < 2:
-            continue
-        n_tail = max(1, int(len(df) * FINAL_FRAC))
-        final_reward = df["episode_reward"].iloc[-n_tail:].mean()
-        records.append({
-            "env": r["env"], "agent": r["agent"], "seed": r["seed"],
-            "final_reward": final_reward,
-        })
-    finals = pd.DataFrame(records)
-    if finals.empty:
-        print("  [skip] no data for final-performance plot")
+def plot_final_performance(out_dir: Path):
+    """Bar chart of mean deterministic-eval return per (env, agent)."""
+    eval_path = EVAL_DIR / "eval_results.csv"
+    if not eval_path.exists():
+        print(f"  [skip] {eval_path} not found — run scripts/evaluate_experiment_1.py first")
         return
-
-    # Aggregate across seeds
-    agg = (finals.groupby(["env", "agent"])["final_reward"]
-                  .agg(["mean", "std"])
-                  .reset_index())
+    df = pd.read_csv(eval_path)
+    agg = (df.groupby(["env", "agent"])["mean_return"]
+             .agg(["mean", "std"])
+             .reset_index())
 
     fig, ax = plt.subplots(figsize=(9, 4.2))
     x = np.arange(len(ENVS))
@@ -245,8 +290,9 @@ def plot_final_performance(runs: pd.DataFrame, out_dir: Path):
 
     ax.set_xticks(x)
     ax.set_xticklabels(ENVS)
-    ax.set_ylabel(f"Mean return over final {int(FINAL_FRAC * 100)}% of episodes")
+    ax.set_ylabel("Mean episode return (raw, deterministic eval)")
     ax.set_title("Experiment 1: final performance (mean ± std over 3 seeds)")
+    ax.axhline(0, color="black", linewidth=0.7)
     ax.grid(True, axis="y", linestyle="--", alpha=0.4)
     ax.legend(loc="best", frameon=False)
     fig.tight_layout()
@@ -257,7 +303,6 @@ def plot_final_performance(runs: pd.DataFrame, out_dir: Path):
     print(f"  wrote {out_dir / 'final_performance.png'}")
     print(f"  wrote {out_dir / 'final_performance.pdf'}")
 
-    # Also dump the aggregated numbers to CSV so they're easy to paste into a paper table
     agg.to_csv(out_dir / "final_performance.csv", index=False)
     print(f"  wrote {out_dir / 'final_performance.csv'}")
 
@@ -276,11 +321,21 @@ def main():
     print(f"  found {len(runs)} runs")
     print(runs.groupby(["env", "agent"]).size().unstack(fill_value=0))
 
-    print("\nBuilding learning curves ...")
-    plot_learning_curves(runs, OUT_DIR)
+    print(f"\nLoading eval anchors from {EVAL_DIR} ...")
+    anchors = load_eval_anchors(EVAL_DIR)
+    using_eval_anchors = bool(anchors)
+    if using_eval_anchors:
+        print(f"  loaded {len(anchors)} per-seed raw anchors")
+    else:
+        print("  no eval anchors — learning curves will be normalized.")
 
-    print("\nBuilding final-performance bar chart ...")
-    plot_final_performance(runs, OUT_DIR)
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    print("\nBuilding learning curves (raw, calibrated to eval) ...")
+    plot_learning_curves(runs, anchors, OUT_DIR, using_eval_anchors)
+
+    print("\nBuilding final-performance bar chart (raw, from eval) ...")
+    plot_final_performance(OUT_DIR)
 
     print("\nDone. Figures saved to:", OUT_DIR.resolve())
 
