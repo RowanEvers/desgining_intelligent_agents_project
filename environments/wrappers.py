@@ -70,7 +70,8 @@ def _apply_physics_perturbation(env, gravity_scale: float = 1.0,
 
 
 def make_env(env_id, seed=42, render_mode=None,
-             gravity_scale: float = 1.0, friction_scale: float = 1.0):
+             gravity_scale: float = 1.0, friction_scale: float = 1.0,
+             normalize_reward: bool = True):
     """Build a wrapped env.
 
     Args:
@@ -80,6 +81,14 @@ def make_env(env_id, seed=42, render_mode=None,
         render_mode: forwarded to ``gym.make``. Leave ``None`` for training.
         gravity_scale, friction_scale: physics perturbations. Defaults of
             ``1.0`` reproduce the Experiment 1 stack exactly.
+        normalize_reward: if True (default, matches Exp 1), wraps with
+            ``NormalizeReward``. SAC + NormalizeReward is a known soft
+            anti-pattern (it shrinks Q-values into a range where automatic
+            entropy tuning collapses exploration); set to False for Exp 3+
+            to follow standard SAC/MuJoCo practice. When False, the reward
+            returned from ``env.step`` is already RAW — ``episode_reward``
+            and ``episode_reward_raw`` columns will be identical, which is
+            fine, downstream plotting prefers the raw column.
     """
     env = gym.make(env_id, render_mode=render_mode)
     _apply_physics_perturbation(env, gravity_scale, friction_scale)
@@ -88,7 +97,8 @@ def make_env(env_id, seed=42, render_mode=None,
     # info["episode"]["r"] reports the raw episodic return. Don't reorder
     # these two lines without updating the loggers downstream.
     env = gym.wrappers.RecordEpisodeStatistics(env)
-    env = gym.wrappers.NormalizeReward(env)
+    if normalize_reward:
+        env = gym.wrappers.NormalizeReward(env)
     set_seed(seed, env)
     return env
 
