@@ -4,11 +4,18 @@ Loads each Exp 3 checkpoint and continues training on HalfCheetah-v5 with
 gravity scaled to ×1.5. Tests how quickly each agent's learned policy +
 representation recovers from the dynamics shift.
 
-For deliberative agents the world model is FROZEN during adaptation —
-that's the canonical "is the learned representation transferable?" probe.
+For deliberative agents we run BOTH world-model modes during adaptation:
+  - frozen   : WM held fixed, only actor+critic adapt. The canonical
+               "is the learned representation transferable?" probe.
+  - unfrozen : WM keeps learning, so it can re-fit the perturbed dynamics.
+               More realistic continual learning, and especially relevant
+               here because the policy is trained ONLY on imagined rollouts
+               — a frozen WM would have it adapt inside a now-stale simulator.
+The frozen-vs-unfrozen contrast is itself a result worth reporting.
 SAC has no world model, so it just continues training (one variant).
 
-Grid: 1 env × 3 agents × 5 seeds × 1 perturbation × 1 wm mode = 15 runs.
+Grid: 1 env × 5 seeds × {sac, gaussian×[frozen,unfrozen],
+categorical×[frozen,unfrozen]} = 5 jobs/seed × 5 seeds = 25 runs.
 Budget: 100k steps per run (10% of source training) — enough to see whether
 each agent recovers, not so long that adaptation becomes "train from
 scratch on perturbed env".
@@ -40,6 +47,11 @@ ENV_ID = "HalfCheetah-v5"
 AGENTS = ["sac", "gaussian", "categorical"]
 SEEDS = [0, 1, 2, 3, 4]
 
+# Deliberative agents run both WM modes during adaptation; SAC has no world
+# model so it runs a single mode (tagged "na" and given no wm suffix).
+WM_MODES_DELIBERATIVE = ["frozen", "unfrozen"]
+WM_MODES_REACTIVE = ["na"]
+
 # Source training was 1M steps; adaptation gets 10% of that to keep the
 # experiment about *adaptation speed*, not "train from scratch on perturbed".
 SRC_STEPS = 1_000_000
@@ -60,9 +72,30 @@ def src_ckpt_path(agent_kind: str, seed: int) -> Path:
     return SRC_ROOT / f"{agent_kind}_{ENV_ID}_steps{SRC_STEPS}_seed{seed}" / "final.zip"
 
 
-def run_tag(agent_kind: str, seed: int) -> str:
+def run_tag(agent_kind: str, seed: int, wm_mode: str) -> str:
     base = f"{agent_kind}_{ENV_ID}_seed{seed}_{PERT_KIND}x{PERT_SCALE}"
-    return base + ("_wmfrozen" if agent_kind != "sac" else "")
+    if agent_kind == "sac":
+        return base
+    # e.g. gaussian_HalfCheetah-v5_seed0_gravityx1.5_wmfrozen / _wmunfrozen.
+    # Note: frozen runs keep the same tag as the previous frozen-only version,
+    # so any already-completed frozen runs are still picked up by skip-already-done.
+    return f"{base}_wm{wm_mode}"
+
+
+def expand_run_grid():
+    """Yield (agent_kind, seed, wm_mode) tuples in a deterministic order.
+
+    Order matters: partition assignment is run-index modulo num-partitions,
+    so interleaving agents within each seed keeps partitions balanced.
+    Deliberative agents expand to both frozen and unfrozen WM modes; SAC
+    yields a single "na" mode.
+    """
+    for seed in SEEDS:
+        for agent_kind in AGENTS:
+            wm_modes = (WM_MODES_DELIBERATIVE if agent_kind != "sac"
+                        else WM_MODES_REACTIVE)
+            for wm_mode in wm_modes:
+                yield (agent_kind, seed, wm_mode)
 
 
 def main():
@@ -84,7 +117,7 @@ def main():
     LOG_ROOT.mkdir(parents=True, exist_ok=True)
     adapt_steps = SMOKE_ADAPT_STEPS if args.smoke else FULL_ADAPT_STEPS
 
-    runs = [(a, s) for s in SEEDS for a in AGENTS]
+    runs = list(expand_run_grid())
     runs_done = 0
     runs_skipped_partition = 0
     runs_skipped_done = 0
@@ -95,12 +128,12 @@ def main():
           f"{len(runs)} total runs, adapt_steps={adapt_steps}, "
           f"partition {args.partition}/{args.num_partitions}, device={device}\n")
 
-    for run_idx, (agent_kind, seed) in enumerate(runs):
+    for run_idx, (agent_kind, seed, wm_mode) in enumerate(runs):
         if run_idx % args.num_partitions != args.partition:
             runs_skipped_partition += 1
             continue
 
-        tag = run_tag(agent_kind, seed)
+        tag = run_tag(agent_kind, seed, wm_mode)
         run_log_dir = LOG_ROOT / tag
         if (run_log_dir / "final.zip").exists():
             print(f"  [skip-already-done] {tag}")
@@ -143,10 +176,14 @@ def main():
                     log_dir=str(run_log_dir), logger=logger, device=device,
                     restore_env_stats=True, freeze_env_stats=False,
                 )
-                # Frozen WM only — tests representation transfer (the
-                # canonical model-based RL adaptation question).
+                # wm_mode picks the adaptation probe:
+                #   frozen   -> WM held fixed, only actor+critic adapt
+                #               (representation-transfer question).
+                #   unfrozen -> WM keeps learning, re-fitting perturbed
+                #               dynamics (continual learning; matters here
+                #               because the policy trains only in imagination).
                 agent.prepare_for_adaptation(
-                    freeze_world_model=True,
+                    freeze_world_model=(wm_mode == "frozen"),
                     reset_step_counter=True,
                     clear_buffers=True,
                 )
@@ -162,18 +199,6 @@ def main():
 
     banner(
         f"Partition {args.partition}/{args.num_partitions}: "
-        f"{runs_done} done, "
-        f"{runs_skipped_partition} other-partition, "
-        f"{runs_skipped_missing} missing-ckpt, "
-        f"{runs_skipped_done} already-done, "
-        f"{runs_failed} failed. "
-        f"Results in {LOG_ROOT}/."
-    )
-
-
-if __name__ == "__main__":
-    main()
-: "
         f"{runs_done} done, "
         f"{runs_skipped_partition} other-partition, "
         f"{runs_skipped_missing} missing-ckpt, "
