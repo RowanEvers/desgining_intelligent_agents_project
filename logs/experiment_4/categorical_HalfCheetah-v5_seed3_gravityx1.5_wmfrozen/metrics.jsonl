@@ -1,0 +1,5 @@
+{"step": 1000, "episode_reward": -259.4312855054861, "episode_length": 1000, "episode_reward_raw": -259.4312855054861}
+{"step": 2000, "episode_reward": -138.9021672149221, "episode_length": 1000, "episode_reward_raw": -138.9021672149221}
+{"step": 3000, "episode_reward": -267.01916395985654, "episode_length": 1000, "episode_reward_raw": -267.01916395985654}
+{"step": 4000, "episode_reward": -269.91138910094344, "episode_length": 1000, "episode_reward_raw": -269.91138910094344}
+{"step": 5000, "episode_reward": -259.686648243971, "episode_length": 1000, "episode_reward_raw": -259.686648243971}
