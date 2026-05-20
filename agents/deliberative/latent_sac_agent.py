@@ -256,11 +256,17 @@ class LatentSACAgent(BaseAgent):
             if len(self.env_buffer) < max(self.warmup_steps, self.batch_size):
                 continue
 
-            # ---- Step 2: train world model ----
+            # ---- Step 2: train world model (skip when frozen) ----
+            # A frozen WM has requires_grad=False on every parameter, so its
+            # train_step would call backward() on a loss with no grad_fn and
+            # raise. Skipping the update is also the correct semantics for the
+            # "frozen" adaptation probe: imagine with the source WM held fixed.
             wm_last = {}
-            for _ in range(self.wm_updates_per_iter):
-                batch = self.env_buffer.sample(self.batch_size)
-                wm_last = self.world_model.train_step(batch, self.wm_opt)
+            wm_trainable = any(p.requires_grad for p in self.world_model.parameters())
+            if wm_trainable:
+                for _ in range(self.wm_updates_per_iter):
+                    batch = self.env_buffer.sample(self.batch_size)
+                    wm_last = self.world_model.train_step(batch, self.wm_opt)
 
             # ---- Step 3: imagine rollouts ----
             self._imagine_rollouts(self.horizon, self.batch_size)

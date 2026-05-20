@@ -271,24 +271,32 @@ def plot_exp4_adaptation_curves(runs: pd.DataFrame, out_dir: Path):
         return
     grid = np.linspace(0, max_step, N_GRID)
 
+    # Each deliberative agent ran TWO WM modes (frozen / unfrozen); SAC ran
+    # one ("na"). Group by (agent, wm) so the modes are separate curves and
+    # the label reflects the actual data instead of a hardcoded string.
     for agent in AGENTS:
-        agent_runs = runs[runs["agent"] == agent]
-        seed_curves = []
-        for _, r in agent_runs.iterrows():
-            df = load_run_raw(r["path"])
-            if df is None:
+        if agent == "sac":
+            variants = [("na", AGENT_LABELS[agent], "-")]
+        else:
+            variants = [
+                ("frozen", f"{AGENT_LABELS[agent]} (WM frozen)", "-"),
+                ("unfrozen", f"{AGENT_LABELS[agent]} (WM unfrozen)", "--"),
+            ]
+        for wm_mode, label, ls in variants:
+            agent_runs = runs[(runs["agent"] == agent) & (runs["wm"] == wm_mode)]
+            seed_curves = []
+            for _, r in agent_runs.iterrows():
+                df = load_run_raw(r["path"])
+                if df is None:
+                    continue
+                df = smoothed(df)
+                seed_curves.append(resample(df, grid))
+            if not seed_curves:
                 continue
-            df = smoothed(df)
-            seed_curves.append(resample(df, grid))
-        if not seed_curves:
-            continue
-        mean, std = agg_seeds(seed_curves)
-        color = AGENT_COLORS[agent]
-        label = AGENT_LABELS[agent]
-        if agent != "sac":
-            label += " (WM frozen)"
-        ax.plot(grid, mean, label=label, color=color, linewidth=2)
-        ax.fill_between(grid, mean - std, mean + std, color=color, alpha=0.18)
+            mean, std = agg_seeds(seed_curves)
+            color = AGENT_COLORS[agent]
+            ax.plot(grid, mean, label=label, color=color, linewidth=2, linestyle=ls)
+            ax.fill_between(grid, mean - std, mean + std, color=color, alpha=0.18)
 
     ax.set_xlabel("Adaptation steps")
     ax.set_ylabel("Episode return (raw)")
