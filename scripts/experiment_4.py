@@ -170,6 +170,7 @@ def main():
                     log_dir=str(LOG_ROOT), logger=logger,
                     device=device, learning_rate=3e-4,
                 )
+                agent.prepare_for_adaptation()
             else:
                 agent = LatentSACAgent.load(
                     str(src), env=env, seed=seed,

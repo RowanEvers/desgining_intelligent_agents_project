@@ -252,8 +252,11 @@ class LatentSACAgent(BaseAgent):
                 if self._env_step_counter >= total_timesteps:
                     break
 
-            # No training until the warmup is over and the env buffer is non-trivial.
-            if len(self.env_buffer) < max(self.warmup_steps, self.batch_size):
+            # No training until the env buffer has enough transitions to sample
+            # a batch.  During initial training warmup_steps > batch_size, but
+            # during adaptation the counter starts at warmup_steps so we only
+            # need batch_size samples before updates begin.
+            if len(self.env_buffer) < self.batch_size:
                 continue
 
             # ---- Step 2: train world model (skip when frozen) ----
@@ -400,7 +403,10 @@ class LatentSACAgent(BaseAgent):
             self.world_model.eval()
 
         if reset_step_counter:
-            self._env_step_counter = 0
+            # Jump straight past the warmup threshold so the trained policy
+            # acts immediately — random-action warmup is only meaningful when
+            # training from scratch, not when adapting a pre-trained agent.
+            self._env_step_counter = self.warmup_steps
 
         if clear_buffers:
             # Re-create the buffers cleanly rather than mutating internals.

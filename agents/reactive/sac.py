@@ -85,11 +85,17 @@ class SACagent(BaseAgent):
                          tensorboard_log=log_dir, verbose=0, device=device, **hparams)
         self.hparams = hparams
 
+    def prepare_for_adaptation(self) -> None:
+        """Skip SB3's learning-starts warmup so the trained policy acts
+        immediately from step 0 of adaptation.  Call this after load() and
+        before train() whenever the agent is being fine-tuned rather than
+        trained from scratch."""
+        self.model.learning_starts = 0
+
     def train(self, total_timesteps):
         cb = LoggerCallback(self.logger, total_timesteps=total_timesteps)
-        # reset_num_timesteps=False so the env-step axis continues from
-        # wherever the loaded checkpoint left off (important for Exp 2
-        # adaptation curves to be on a comparable axis to Exp 1).
+        # reset_num_timesteps=True so the adaptation curve x-axis starts at 0
+        # rather than continuing from the 1 M source-training steps.
         self.model.learn(total_timesteps=total_timesteps, callback=cb,
                          reset_num_timesteps=True)
 
