@@ -62,9 +62,9 @@ SMOKE_ADAPT_STEPS = 10_000
 # canonical sim-to-real-style perturbation and HalfCheetah is gait-based,
 # so changing gravity is a meaningful dynamics shift).
 PERT_KIND = "gravity"
-PERT_SCALE = 1
+PERT_SCALE = 1.5
 
-LOG_ROOT = Path("logs/experiment_4_control")
+LOG_ROOT = Path("logs/experiment_4_no_warmup")
 SRC_ROOT = Path("logs/experiment_3")
 
 

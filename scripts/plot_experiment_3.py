@@ -50,7 +50,7 @@ AGENT_COLORS = {
 }
 
 EXP3_ROOT = Path("logs/experiment_3")
-EXP4_ROOT = Path("logs/experiment_4")
+EXP4_ROOT = Path("logs/experiment_4_no_warmup")
 EXP3_OUT = EXP3_ROOT / "figures"
 EXP4_OUT = EXP4_ROOT / "figures"
 
