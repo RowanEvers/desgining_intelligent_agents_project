@@ -28,9 +28,23 @@ from pathlib import Path
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.ticker import FuncFormatter
 import pandas as pd
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+
+# ---------------------------------------------------------------------------
+# Report styling: larger fonts so figures stay legible when shrunk into the
+# report. Applied globally to every figure produced by this script.
+# ---------------------------------------------------------------------------
+plt.rcParams.update({
+    "font.size": 14,
+    "axes.labelsize": 16,
+    "xtick.labelsize": 14,
+    "ytick.labelsize": 14,
+    "legend.fontsize": 13,
+})
 
 
 # ---------------------------------------------------------------------------
@@ -192,9 +206,9 @@ def plot_exp3_learning_curves(runs: pd.DataFrame, out_dir: Path):
 
     ax.set_xlabel("Environment steps")
     ax.set_ylabel("Episode return (raw)")
-    ax.set_title(f"Experiment 3: learning curves on {ENV_ID} (mean ± 1 std over seeds)")
     ax.grid(True, linestyle="--", alpha=0.4)
     ax.ticklabel_format(style="sci", axis="x", scilimits=(0, 0))
+    ax.xaxis.get_offset_text().set_fontsize(plt.rcParams["xtick.labelsize"])
     ax.legend(loc="best", frameon=False)
     fig.tight_layout()
 
@@ -242,8 +256,7 @@ def plot_exp3_final_performance(runs: pd.DataFrame, out_dir: Path) -> pd.DataFra
 
     ax.set_xticks(x)
     ax.set_xticklabels([AGENT_LABELS[a] for a in AGENTS], rotation=15, ha="right")
-    ax.set_ylabel("Mean raw return over final 10% of episodes")
-    ax.set_title(f"Experiment 3: final performance on {ENV_ID}")
+    ax.set_ylabel("Mean raw return (final 10%)")
     ax.axhline(0, color="black", linewidth=0.7)
     ax.grid(True, axis="y", linestyle="--", alpha=0.4)
     fig.tight_layout()
@@ -283,8 +296,8 @@ def plot_exp4_adaptation_curves(runs: pd.DataFrame, out_dir: Path):
             variants = [("na", AGENT_LABELS[agent], "-")]
         else:
             variants = [
-                ("frozen", f"{AGENT_LABELS[agent]} (WM frozen)", "-"),
-                ("unfrozen", f"{AGENT_LABELS[agent]} (WM unfrozen)", "--"),
+                ("frozen", f"{AGENT_LABELS[agent]} — frozen", "-"),
+                ("unfrozen", f"{AGENT_LABELS[agent]} — unfrozen", "--"),
             ]
         for wm_mode, label, ls in variants:
             agent_runs = runs[(runs["agent"] == agent) & (runs["wm"] == wm_mode)]
@@ -302,12 +315,15 @@ def plot_exp4_adaptation_curves(runs: pd.DataFrame, out_dir: Path):
             ax.plot(grid, mean, label=label, color=color, linewidth=2, linestyle=ls)
             ax.fill_between(grid, mean - std, mean + std, color=color, alpha=0.18)
 
-    ax.set_xlabel("Adaptation steps")
+    ax.set_xlabel(r"Adaptation steps  ($\times 10^5$)")
     ax.set_ylabel("Episode return (raw)")
-    ax.set_title(f"Experiment 4: adaptation to gravity×1.5 on {ENV_ID}")
     ax.grid(True, linestyle="--", alpha=0.4)
-    ax.ticklabel_format(style="sci", axis="x", scilimits=(0, 0))
-    ax.legend(loc="best", frameon=False)
+    # Fold the 1e5 scale into the axis label instead of a floating offset marker.
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v / 1e5:.2f}"))
+    # Legend below the axes (5 entries with long labels would otherwise cover
+    # the curves) in two columns.
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.16),
+              ncol=2, frameon=False)
     fig.tight_layout()
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -363,8 +379,11 @@ def plot_exp4_source_to_adapt(exp3_runs: pd.DataFrame, exp4_runs: pd.DataFrame,
             continue
         mean, std = agg_seeds(seed_curves)
         color = AGENT_COLORS[agent]
-        ax.plot(src_grid, mean, color=color, linewidth=1.5, alpha=0.7)
-        ax.fill_between(src_grid, mean - std, mean + std, color=color, alpha=0.10)
+        # Pre-perturbation (source) drawn with the same line style as the
+        # post-perturbation (adaptation) curves so they read as one continuous
+        # trace across x=0.
+        ax.plot(src_grid, mean, color=color, linewidth=2)
+        ax.fill_between(src_grid, mean - std, mean + std, color=color, alpha=0.18)
 
     # ---- adaptation, per (agent, wm) ----
     for agent in AGENTS:
@@ -372,8 +391,8 @@ def plot_exp4_source_to_adapt(exp3_runs: pd.DataFrame, exp4_runs: pd.DataFrame,
             variants = [("na", AGENT_LABELS[agent], "-")]
         else:
             variants = [
-                ("frozen", f"{AGENT_LABELS[agent]} (WM frozen)", "-"),
-                ("unfrozen", f"{AGENT_LABELS[agent]} (WM unfrozen)", "--"),
+                ("frozen", f"{AGENT_LABELS[agent]} — frozen", "-"),
+                ("unfrozen", f"{AGENT_LABELS[agent]} — unfrozen", "--"),
             ]
         for wm_mode, label, ls in variants:
             sel = (exp4_runs["agent"] == agent) & (exp4_runs["wm"] == wm_mode)
@@ -393,16 +412,19 @@ def plot_exp4_source_to_adapt(exp3_runs: pd.DataFrame, exp4_runs: pd.DataFrame,
                             color=color, alpha=0.18)
 
     ax.axvline(0.0, color="0.3", linestyle=":", linewidth=1.5)
-    # Vertical label just left of the line so it doesn't collide with the title.
+    # Vertical label just left of the perturbation line.
     ax.text(0.0, 0.97, "gravity×1.5 applied  ",
             transform=ax.get_xaxis_transform(),
-            rotation=90, va="top", ha="right", fontsize=8, color="0.3")
-    ax.set_xlabel("Steps relative to perturbation  (source ← 0 → adaptation)")
+            rotation=90, va="top", ha="right", fontsize=13, color="0.3")
+    ax.set_xlabel(r"Steps relative to perturbation  ($\times 10^5$;  source ← 0 → adaptation)")
     ax.set_ylabel("Episode return (raw)")
-    ax.set_title(f"Experiment 4: source → adaptation around gravity×1.5 on {ENV_ID}")
     ax.grid(True, linestyle="--", alpha=0.4)
-    ax.ticklabel_format(style="sci", axis="x", scilimits=(0, 0))
-    ax.legend(loc="best", frameon=False)
+    # Fold the 1e5 scale into the axis label instead of a floating offset marker.
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v / 1e5:.2f}"))
+    # Legend below the axes (5 entries with long labels would otherwise cover
+    # the curves) in two columns.
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.16),
+              ncol=2, frameon=False)
     fig.tight_layout()
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -467,8 +489,7 @@ def plot_exp4_vs_baseline(runs: pd.DataFrame, exp3_finals: pd.DataFrame,
 
     ax.set_xticks(x)
     ax.set_xticklabels([AGENT_LABELS[a] for a in AGENTS], rotation=15, ha="right")
-    ax.set_ylabel("Mean raw return over final 10% of episodes")
-    ax.set_title(f"Experiment 4: adaptation drop vs Exp 3 baseline")
+    ax.set_ylabel("Mean raw return (final 10%)")
     ax.axhline(0, color="black", linewidth=0.7)
     ax.grid(True, axis="y", linestyle="--", alpha=0.4)
     ax.legend(loc="best", frameon=False)
