@@ -66,6 +66,10 @@ N_GRID = 200
 SMOOTH_FRAC = 0.04
 SMOOTH_MIN = 11
 TAIL_FRAC = 0.10
+# How much of the Exp 3 source tail to show before the perturbation in the
+# source->adaptation continuity plot (matches the adaptation length so the
+# pre/post scales are comparable).
+SRC_TAIL = 100_000
 
 
 # ---------------------------------------------------------------------------
@@ -313,6 +317,101 @@ def plot_exp4_adaptation_curves(runs: pd.DataFrame, out_dir: Path):
     print(f"  wrote {out_dir / 'adaptation_curves.png'}")
 
 
+def plot_exp4_source_to_adapt(exp3_runs: pd.DataFrame, exp4_runs: pd.DataFrame,
+                              out_dir: Path):
+    """Continuity plot: the last SRC_TAIL steps of Exp 3 source training joined
+    to the Exp 4 adaptation, with the perturbation at x=0. Gives context to the
+    post-perturbation drop by showing each agent's pre-perturbation level.
+
+    Source steps are shifted so each run ends at x=0 (→ [-SRC_TAIL, 0]);
+    adaptation keeps its own [0, adapt_len] axis. An agent's frozen/unfrozen
+    branches share the same source history, so the source tail is drawn once
+    per agent (thin, no legend entry) and the adaptation branches carry the
+    labels. The dotted line at x=0 marks where gravity×1.5 is applied.
+    """
+    if exp4_runs.empty or exp3_runs.empty:
+        return
+    fig, ax = plt.subplots(figsize=(9, 5))
+
+    adapt_max = 0
+    for _, r in exp4_runs.iterrows():
+        df = load_run_raw(r["path"])
+        if df is not None:
+            adapt_max = max(adapt_max, df["step"].max())
+    if adapt_max == 0:
+        print("  [skip] no usable adaptation curves")
+        plt.close(fig)
+        return
+
+    src_grid = np.linspace(-SRC_TAIL, 0, N_GRID)
+    adapt_grid = np.linspace(0, adapt_max, N_GRID)
+
+    # ---- source tail, once per agent (shared by both WM modes) ----
+    for agent in AGENTS:
+        seed_curves = []
+        for _, r in exp3_runs[exp3_runs["agent"] == agent].iterrows():
+            df = load_run_raw(r["path"])
+            if df is None:
+                continue
+            src_end = df["step"].max()
+            df = df[df["step"] >= src_end - SRC_TAIL].copy()
+            if len(df) < 2:
+                continue
+            df["step"] = df["step"] - src_end           # → [-SRC_TAIL, 0]
+            seed_curves.append(resample(smoothed(df), src_grid))
+        if not seed_curves:
+            continue
+        mean, std = agg_seeds(seed_curves)
+        color = AGENT_COLORS[agent]
+        ax.plot(src_grid, mean, color=color, linewidth=1.5, alpha=0.7)
+        ax.fill_between(src_grid, mean - std, mean + std, color=color, alpha=0.10)
+
+    # ---- adaptation, per (agent, wm) ----
+    for agent in AGENTS:
+        if agent == "sac":
+            variants = [("na", AGENT_LABELS[agent], "-")]
+        else:
+            variants = [
+                ("frozen", f"{AGENT_LABELS[agent]} (WM frozen)", "-"),
+                ("unfrozen", f"{AGENT_LABELS[agent]} (WM unfrozen)", "--"),
+            ]
+        for wm_mode, label, ls in variants:
+            sel = (exp4_runs["agent"] == agent) & (exp4_runs["wm"] == wm_mode)
+            seed_curves = []
+            for _, r in exp4_runs[sel].iterrows():
+                df = load_run_raw(r["path"])
+                if df is None:
+                    continue
+                seed_curves.append(resample(smoothed(df), adapt_grid))
+            if not seed_curves:
+                continue
+            mean, std = agg_seeds(seed_curves)
+            color = AGENT_COLORS[agent]
+            ax.plot(adapt_grid, mean, label=label, color=color,
+                    linewidth=2, linestyle=ls)
+            ax.fill_between(adapt_grid, mean - std, mean + std,
+                            color=color, alpha=0.18)
+
+    ax.axvline(0.0, color="0.3", linestyle=":", linewidth=1.5)
+    # Vertical label just left of the line so it doesn't collide with the title.
+    ax.text(0.0, 0.97, "gravity×1.5 applied  ",
+            transform=ax.get_xaxis_transform(),
+            rotation=90, va="top", ha="right", fontsize=8, color="0.3")
+    ax.set_xlabel("Steps relative to perturbation  (source ← 0 → adaptation)")
+    ax.set_ylabel("Episode return (raw)")
+    ax.set_title(f"Experiment 4: source → adaptation around gravity×1.5 on {ENV_ID}")
+    ax.grid(True, linestyle="--", alpha=0.4)
+    ax.ticklabel_format(style="sci", axis="x", scilimits=(0, 0))
+    ax.legend(loc="best", frameon=False)
+    fig.tight_layout()
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_dir / "source_to_adaptation.png", dpi=200, bbox_inches="tight")
+    fig.savefig(out_dir / "source_to_adaptation.pdf", bbox_inches="tight")
+    plt.close(fig)
+    print(f"  wrote {out_dir / 'source_to_adaptation.png'}")
+
+
 def plot_exp4_vs_baseline(runs: pd.DataFrame, exp3_finals: pd.DataFrame,
                           out_dir: Path):
     """Side-by-side bars: Exp 3 final (unperturbed) vs Exp 4 final (perturbed)."""
@@ -414,6 +513,10 @@ def main():
         EXP4_OUT.mkdir(parents=True, exist_ok=True)
         print("\nBuilding Exp 4 adaptation curves ...")
         plot_exp4_adaptation_curves(e4, EXP4_OUT)
+
+        if not e3.empty:
+            print("\nBuilding Exp 4 source → adaptation continuity plot ...")
+            plot_exp4_source_to_adapt(e3, e4, EXP4_OUT)
 
         if not exp3_finals.empty:
             print("\nBuilding Exp 4 vs baseline comparison ...")
