@@ -18,14 +18,6 @@ from stable_baselines3.common.monitor import Monitor
 
 
 def _peek_raw_episode_return(training_env):
-    """Walk a (possibly Vec-wrapped) env chain looking for
-    ``RecordEpisodeStatistics`` and return the most recent raw episodic
-    return from its internal queue. Returns ``None`` if no such wrapper
-    is found or the queue is empty.
-
-    Used by ``LoggerCallback`` to log RAW returns alongside the normalized
-    ones SB3's Monitor reports.
-    """
     # SB3 wraps in a VecEnv with .envs[0] = our Monitor(make_env(...)).
     candidates = []
     if hasattr(training_env, "envs"):

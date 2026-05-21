@@ -1,13 +1,3 @@
-"""Auxiliary prediction heads attached to the latent.
-
-- Decoder:        z          -> reconstructed observation       (used in ELBO recon loss)
-- Reward head:    (z, a)     -> predicted reward                (lets us reward imagined rollouts)
-- Continue head:  z          -> probability the episode continues (lets us mask dones in imagination)
-
-Each is a small MLP. They are deliberately kept simple — the heavy lifting is
-done by the encoder and dynamics; these heads just ground the latent.
-"""
-
 import torch
 import torch.nn as nn
 

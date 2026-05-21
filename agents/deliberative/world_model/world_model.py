@@ -1,25 +1,3 @@
-"""GaussianWorldModel — bundles encoder + dynamics + decoder + reward + continue.
-
-Exposes:
-  - encode(obs)                  -> Normal over z
-  - imagine(z, action)           -> Normal over z'
-  - decode(z)                    -> obs_hat
-  - reward(z, a)                 -> r_hat
-  - continue_prob(z)             -> P(not done)
-  - train_step(batch)            -> dict of loss components
-
-The training objective is the standard variational world-model ELBO:
-
-    L = recon_loss + beta * KL[q(z|s) || p(z|z_prev,a_prev)]
-        + reward_loss + continue_loss
-
-For the very first step in a sequence there's no prior dynamics output, so we
-fall back to a standard Normal(0, I) prior on z_0.
-
-The categorical variant will live in a sibling file with the same public API,
-swapping Normal for OneHotCategoricalStraightThrough.
-"""
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

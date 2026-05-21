@@ -1,37 +1,3 @@
-"""Categorical latent dynamics — the discrete counterpart to dynamics.py.
-
-p(z_{t+1} | z_t, a_t) is a stack of `num_cat` categorical distributions,
-exactly matching the structure produced by the CategoricalEncoder so that
-KL(q || p) is well-defined between them.
-
-Notes on what does NOT translate from the Gaussian version
-----------------------------------------------------------
-- `predict_delta` is omitted. The Gaussian dynamics learned a residual on
-  the mean, which made sense because z_t and z_{t+1} live in the same real
-  vector space and tend to be close. For a categorical latent, "the delta"
-  doesn't have a natural meaning (one-hot vectors don't add residually). We
-  predict the next-step logits outright.
-
-- `log_std` clamping is irrelevant — categoricals don't have a scale
-  parameter. The only knob that affects sharpness is the logit magnitude,
-  which the network learns freely.
-
-Notes on what DOES translate
-----------------------------
-- The trunk is identical: an MLP from (z_flat + action) into hidden_dim.
-- The output head is also a single Linear, just projecting to
-  num_cat * num_classes instead of 2 * latent_dim (mu + log_std).
-- The forward() shape contract matches the encoder so KL between two
-  dynamics-or-encoder distributions is straightforward.
-
-Input convention
-----------------
-The dynamics receives the latent as a FLAT vector (batch, num_cat*num_classes).
-This is because the rest of the system (decoder, reward head, continue head,
-actor, critic) all see the latent flat — so we keep the flat representation
-as the "canonical" interface and only reshape internally where needed.
-"""
-
 import torch
 import torch.nn as nn
 

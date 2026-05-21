@@ -1,23 +1,4 @@
-"""Plots for Experiment 3 (main) + Experiment 4 (adaptation).
 
-Run from the repo root::
-
-    python scripts/plot_experiment_3.py
-
-Outputs:
-  logs/experiment_3/figures/
-    learning_curves.{png,pdf}      — 3 curves (SAC vs Gaussian vs Categorical),
-                                     mean ± std over 5 seeds
-    final_performance.{png,pdf}    — bar chart of mean of last 10% raw return
-  logs/experiment_4/figures/
-    adaptation_curves.{png,pdf}    — adaptation under gravity×1.5
-    adaptation_vs_baseline.{png,pdf} — final adaptation reward vs Exp 3 baseline
-
-Reads ``episode_reward_raw`` directly from metrics.jsonl. No eval-anchoring
-is needed for Exp 3 / Exp 4 because the new wrapper stack logs raw rewards.
-If a run for some reason has no raw column, that curve is skipped with a
-warning rather than silently plotting noise.
-"""
 from __future__ import annotations
 
 import os
@@ -33,11 +14,6 @@ import pandas as pd
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-
-# ---------------------------------------------------------------------------
-# Report styling: larger fonts so figures stay legible when shrunk into the
-# report. Applied globally to every figure produced by this script.
-# ---------------------------------------------------------------------------
 plt.rcParams.update({
     "font.size": 14,
     "axes.labelsize": 16,
@@ -84,11 +60,7 @@ TAIL_FRAC = 0.10
 # source->adaptation continuity plot (matches the adaptation length so the
 # pre/post scales are comparable).
 SRC_TAIL = 100_000
-
-
-# ---------------------------------------------------------------------------
 # Loaders
-# ---------------------------------------------------------------------------
 def load_run_raw(jsonl_path: Path) -> pd.DataFrame | None:
     """Load (step, raw_reward) from a metrics.jsonl. Skips runs that only
     have normalized reward, with a printed warning."""
@@ -147,9 +119,6 @@ def discover_exp4(root: Path = EXP4_ROOT) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-# ---------------------------------------------------------------------------
-# Aggregation
-# ---------------------------------------------------------------------------
 def smoothed(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy().sort_values("step").reset_index(drop=True)
     win = max(SMOOTH_MIN, int(len(out) * SMOOTH_FRAC))
@@ -333,18 +302,8 @@ def plot_exp4_adaptation_curves(runs: pd.DataFrame, out_dir: Path):
     print(f"  wrote {out_dir / 'adaptation_curves.png'}")
 
 
-def plot_exp4_source_to_adapt(exp3_runs: pd.DataFrame, exp4_runs: pd.DataFrame,
-                              out_dir: Path):
-    """Continuity plot: the last SRC_TAIL steps of Exp 3 source training joined
-    to the Exp 4 adaptation, with the perturbation at x=0. Gives context to the
-    post-perturbation drop by showing each agent's pre-perturbation level.
-
-    Source steps are shifted so each run ends at x=0 (→ [-SRC_TAIL, 0]);
-    adaptation keeps its own [0, adapt_len] axis. An agent's frozen/unfrozen
-    branches share the same source history, so the source tail is drawn once
-    per agent (thin, no legend entry) and the adaptation branches carry the
-    labels. The dotted line at x=0 marks where gravity×1.5 is applied.
-    """
+def plot_exp4_source_to_adapt(exp3_runs, exp4_runs,
+                              out_dir):
     if exp4_runs.empty or exp3_runs.empty:
         return
     fig, ax = plt.subplots(figsize=(9, 5))

@@ -1,20 +1,3 @@
-"""CategoricalWorldModel — discrete-latent counterpart to GaussianWorldModel.
-
-Same public interface (encode / imagine / decode / reward / continue_prob /
-train_step) so the existing LatentSACAgent class can use this module with
-zero code changes — just swap which class is instantiated.
-
-The only architectural twist relative to the Gaussian version:
-
-    The encoder and dynamics produce categorical distributions whose
-    `.rsample()` returns a one-hot tensor of shape (batch, num_cat, num_classes).
-    Downstream networks (decoder, reward, continue, actor, critic) all
-    expect a FLAT latent of shape (batch, num_cat * num_classes). We bridge
-    this with a tiny wrapper class `_FlatLatentDist` that flattens samples
-    on the way out while keeping the raw distribution accessible (via
-    `.inner`) for KL computation.
-"""
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

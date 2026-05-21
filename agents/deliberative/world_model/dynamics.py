@@ -1,11 +1,3 @@
-"""Gaussian latent dynamics.
-
-p(z_{t+1} | z_t, a_t) = Normal(mu(z_t, a_t), sigma(z_t, a_t))
-
-Lets us imagine forward in latent space without ever decoding back to raw
-observations during rollouts. The categorical version will share this file's
-interface but parameterise a Categorical instead.
-"""
 import torch
 import torch.nn as nn
 

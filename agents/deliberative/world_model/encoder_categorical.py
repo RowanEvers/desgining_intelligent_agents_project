@@ -1,32 +1,3 @@
-"""Categorical observation encoder — the discrete counterpart to encoder.py.
-
-q(z | s) is a stack of `num_cat` independent categorical distributions, each
-over `num_classes` mutually exclusive options. A sample is therefore
-`num_cat` one-hot vectors of length `num_classes`, stacked along a new axis.
-
-Why categorical instead of Gaussian?
-    The Hafner et al. Dreamer V2/V3 result is that discrete latents are
-    empirically better behaved than Gaussian latents in many tasks — they
-    don't collapse to a noise distribution, the policy can act on a
-    sparse/sharp representation, and the dynamics can model multimodal
-    futures naturally (the categorical can put mass on two distinct outcomes
-    where a unimodal Gaussian would smear between them).
-
-Why `num_cat` × `num_classes` and not just one big categorical?
-    A single 1024-way categorical has the same information content as
-    32 × 32, but training a 1024-way softmax is unstable and concentrates
-    gradient on one site. The "K small categoricals" factorisation gives
-    the same representational capacity with much better-behaved gradients
-    and is what Dreamer V2 actually uses.
-
-Why straight-through?
-    The `OneHotCategoricalStraightThrough` distribution samples discretely
-    on the forward pass (you get an actual one-hot vector) but treats the
-    sample as if it were the continuous softmax probabilities on the
-    backward pass. Without this trick, the discrete sampling step would have
-    no gradient and the encoder would never learn.
-"""
-
 import torch
 import torch.nn as nn
 

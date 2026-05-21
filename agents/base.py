@@ -2,10 +2,6 @@
 from abc import ABC, abstractmethod
 import numpy as np
 
-
-
-
-
 class BaseAgent(ABC):  # parent class for all agents
     def __init__(self, env, seed, log_dir, logger, device, **hparams):
         self.env = env

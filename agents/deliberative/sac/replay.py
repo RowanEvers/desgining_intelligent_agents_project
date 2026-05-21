@@ -1,27 +1,8 @@
-"""Replay buffers.
-
-Two buffers, two access patterns:
-
-  EnvReplayBuffer
-      Stores REAL transitions (obs, a, r, obs', done) collected from the
-      environment. Numpy-backed because env interaction is one-step-at-a-time
-      (slow path anyway) and numpy avoids holding GPU memory hostage for cold
-      data we'll only sample occasionally. Used to train the WORLD MODEL.
-
-  ImaginedBuffer
-      Stores IMAGINED transitions (z, a, r_hat, z', cont_hat) produced in
-      batches by rolling the dynamics forward H steps. Torch-backed and kept
-      on-device because (a) it's written in big batches, (b) it's read every
-      SAC update, and (c) it stores latent vectors not raw observations so
-      memory is bounded. Used to train SAC.
-"""
-
 import numpy as np
 import torch
 
 
 class EnvReplayBuffer:
-    """Numpy ring buffer for real env transitions."""
 
     def __init__(self, capacity: int, obs_dim: int, action_dim: int, device: str = "cpu"):
         self.capacity = capacity
@@ -49,8 +30,7 @@ class EnvReplayBuffer:
         if self.ptr == 0:
             self.full = True
 
-    def sample(self, batch_size: int) -> dict:
-        """Sample uniformly without replacement-style — np.random.randint is fast and ok with replacement."""
+    def sample(self, batch_size):
         max_idx = self.capacity if self.full else self.ptr
         idx = np.random.randint(0, max_idx, size=batch_size)
         # Push to device once per batch — cheap relative to the gradient step.
@@ -67,11 +47,6 @@ class EnvReplayBuffer:
 
 
 class ImaginedBuffer:
-    """Torch ring buffer for imagined latent transitions, kept on `device`.
-
-    Stored values are detached — we don't backprop through stored data; SAC
-    treats imagined transitions just like real ones from its point of view.
-    """
 
     def __init__(self, capacity: int, latent_dim: int, action_dim: int, device: str = "cpu"):
         self.capacity = capacity
@@ -87,13 +62,7 @@ class ImaginedBuffer:
         self.ptr = 0
         self.full = False
 
-    def add_batch(self, z, action, reward, next_z, cont) -> None:
-        """Add a batch of imagined transitions at once.
-
-        All inputs are torch tensors; we detach them so the buffer doesn't
-        retain the imagination computation graph (would blow up memory).
-        Handles wrap-around if the batch crosses the end of the buffer.
-        """
+    def add_batch(self, z, action, reward, next_z, cont):
         z       = z.detach()
         action  = action.detach()
         reward  = reward.detach()

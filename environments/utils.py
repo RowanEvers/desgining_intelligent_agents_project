@@ -23,8 +23,7 @@ def set_seed(seed, env=None):
 
 def _to_python_scalar(value):
     """Best-effort conversion of tensor/np scalars to plain Python numbers
-    so they're JSON-serialisable. Returns the value unchanged if it's
-    already a primitive."""
+    so they're JSON-serialisable."""
     if isinstance(value, torch.Tensor):
         return value.detach().cpu().item() if value.numel() == 1 else value.detach().cpu().tolist()
     if isinstance(value, (np.floating, np.integer)):
@@ -35,10 +34,6 @@ def _to_python_scalar(value):
 
 
 def _find_wrapper_attr(env, attr):
-    """Walk a (possibly nested) gymnasium wrapper chain looking for an
-    attribute. Returns the (wrapper, value) pair, or (None, None) if not
-    found. Used to locate obs_rms / return_rms across whatever wrapper
-    order ``make_env`` produces."""
     cur = env
     while cur is not None:
         if hasattr(cur, attr):
@@ -48,14 +43,6 @@ def _find_wrapper_attr(env, attr):
 
 
 def extract_env_norm_stats(env):
-    """Pull the running mean/var/count out of a NormalizeObservation +
-    NormalizeReward wrapper stack into a plain dict that's safe to
-    pickle/torch.save. Missing wrappers are silently skipped so the same
-    helper works for envs that aren't normalised.
-
-    Returns a dict with keys ``obs_rms`` and/or ``return_rms``, each
-    mapping to ``{"mean": np.ndarray, "var": np.ndarray, "count": float}``.
-    """
     stats = {}
     _, obs_rms = _find_wrapper_attr(env, "obs_rms")
     if obs_rms is not None:

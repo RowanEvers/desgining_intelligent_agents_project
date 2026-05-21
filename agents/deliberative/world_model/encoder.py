@@ -1,16 +1,3 @@
-"""Gaussian observation encoder.
-
-q(z | s) = Normal(mu(s), sigma(s))
-
-For the continuous (Gaussian) world-model agent, this maps a raw observation
-into the parameters of a diagonal Gaussian over the latent z. The categorical
-variant will live alongside this file and have the same interface but produce
-logits over discrete categories instead.
-
-The interface is intentionally minimal: forward(obs) -> Distribution-like object
-with .rsample(), .mean, and a method to compute KL against a prior.
-"""
-
 import torch
 import torch.nn as nn
 

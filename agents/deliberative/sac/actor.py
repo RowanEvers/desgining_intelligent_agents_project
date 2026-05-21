@@ -1,11 +1,3 @@
-"""SAC actor: squashed-Gaussian policy over actions given latent z.
-
-pi(a | z) = tanh( Normal(mu(z), sigma(z)) ),   action bounds applied afterwards.
-
-The tanh squash means we need the log-prob correction:
-    log pi(a|z) = log N(u|mu, sigma) - sum log(1 - tanh(u)^2 + eps)
-where u is the pre-tanh sample.
-"""
 import torch
 import torch.nn as nn
 

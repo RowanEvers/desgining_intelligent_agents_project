@@ -1,21 +1,9 @@
-"""SAC twin Q-critic operating on (z, a).
-
-Two independent Q networks — we take the minimum for the policy target to
-combat overestimation bias (Twin Delayed DDPG / SAC trick). Each has a target
-network updated via Polyak averaging (tau ~ 0.005).
-
-Why two Q networks?
-    A single Q net consistently overestimates value because the max/argmax in
-    the target is biased upward by network noise. Taking the elementwise min
-    of two independently-trained Q nets cancels most of that bias for free.
-"""
 
 import torch
 import torch.nn as nn
 
 
 class QNetwork(nn.Module):
-    """Single Q(z, a) -> scalar."""
 
     def __init__(self, latent_dim, action_dim, hidden_dim=256, num_layers=2):
         super().__init__()
@@ -37,7 +25,6 @@ class QNetwork(nn.Module):
 
 
 class TwinCritic(nn.Module):
-    """Pair of Q networks. forward() returns both; q_min() returns elementwise min."""
 
     def __init__(self, latent_dim: int, action_dim: int, hidden_dim: int = 256):
         super().__init__()
